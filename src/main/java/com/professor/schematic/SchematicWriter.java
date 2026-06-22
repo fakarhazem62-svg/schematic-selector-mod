@@ -98,7 +98,6 @@ public class SchematicWriter {
      * Converts a BlockState to its string representation.
      * Example: "minecraft:oak_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]"
      */
-    @SuppressWarnings("unchecked")
     private static String blockStateToString(BlockState state) {
         String blockId = Registries.BLOCK.getId(state.getBlock()).toString();
         Collection<Property<?>> props = state.getProperties();
@@ -109,11 +108,14 @@ public class SchematicWriter {
         for (Property<?> prop : props) {
             if (!first) sb.append(',');
             first = false;
-            sb.append(prop.getName()).append('=')
-              .append(((Property<Comparable>) prop).name(state.get(prop)));
+            sb.append(prop.getName()).append('=').append(getPropValue(state, prop));
         }
         sb.append(']');
         return sb.toString();
+    }
+
+    private static <T extends Comparable<T>> String getPropValue(BlockState state, Property<T> prop) {
+        return prop.name(state.get(prop));
     }
 
     /**
