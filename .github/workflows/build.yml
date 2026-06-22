@@ -1,0 +1,68 @@
+name: Build Schematic Selector Mod
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Build with Gradle
+        run: ./gradlew build
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: schematic-selector-mod
+          path: build/libs/schematic-selector-*.jar
+          if-no-files-found: error
+
+      - name: Create Release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "Schematic Selector v1.0.0"
+          body: |
+            ## Schematic Selector Mod — Minecraft 1.21.1 Fabric
+
+            ### طريقة التثبيت
+            1. حمّل الـ JAR
+            2. حطّه في مجلد `.minecraft/mods/`
+
+            ### الأزرار
+            | الزر | الوظيفة |
+            |------|---------|
+            | V | تفعيل وضع التحديد |
+            | زر الفأرة الأيسر | Pos1 |
+            | زر الفأرة الأيمن | Pos2 |
+            | M | شاشة الحفظ |
+          files: build/libs/schematic-selector-*.jar
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
