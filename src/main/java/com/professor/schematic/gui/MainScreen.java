@@ -22,126 +22,136 @@ public class MainScreen extends Screen {
     private static final int TAB_RESPAWN = 1;
     private int activeTab = TAB_SAVE;
 
-    // ── Falling stars ─────────────────────────────────────────────────────────
-    private static final int STAR_COUNT = 120;
-    private final float[] starX   = new float[STAR_COUNT];
-    private final float[] starY   = new float[STAR_COUNT];
-    private final float[] starSpd = new float[STAR_COUNT];
-    private final float[] starAlp = new float[STAR_COUNT];
-    private final float[] starSz  = new float[STAR_COUNT];
-    private final Random  rng     = new Random();
+    // ── Stars ─────────────────────────────────────────────────────────────────
+    private static final int STAR_COUNT = 100;
+    private final float[] sX   = new float[STAR_COUNT];
+    private final float[] sY   = new float[STAR_COUNT];
+    private final float[] sSpd = new float[STAR_COUNT];
+    private final float[] sAlp = new float[STAR_COUNT];
+    private final float[] sSz  = new float[STAR_COUNT];
+    private final Random  rng  = new Random();
     private long tick = 0;
 
-    // ── Save tab widgets ──────────────────────────────────────────────────────
+    // ── Colors (purple theme) ─────────────────────────────────────────────────
+    private static final int COL_BG          = 0xFF04000D;   // near-black purple
+    private static final int COL_PANEL       = 0xEA07001C;   // deep purple panel
+    private static final int COL_PANEL_INNER = 0x44220040;   // inner sections
+    private static final int COL_BORDER      = 0xFF9400FF;   // bright violet
+    private static final int COL_BORDER_DIM  = 0xFF5500AA;   // dimmer violet
+    private static final int COL_TITLE       = 0xFFDD88FF;   // lavender title
+    private static final int COL_LABEL       = 0xFFBB99EE;   // purple-white label
+    private static final int COL_VALUE       = 0xFFEEDDFF;   // bright label
+    private static final int COL_MUTED       = 0xFF7755AA;   // muted purple
+    private static final int COL_SEL_ROW     = 0x663300AA;   // selected row
+    private static final int COL_OK          = 0xFF66FF99;   // green success
+    private static final int COL_ERR         = 0xFFFF5555;   // red error
+    private static final int COL_WARN        = 0xFFFFAA44;   // orange warning
+    private static final int COL_TAB_ACTIVE  = 0x995500CC;   // active tab bg
+    private static final int COL_TAB_IDLE    = 0x33440066;   // idle tab bg
+
+    // ── Layout ────────────────────────────────────────────────────────────────
+    private static final int PW = 470;   // panel width
+    private static final int PH = 310;   // panel height
+
+    // ── Save tab ──────────────────────────────────────────────────────────────
     private TextFieldWidget saveNameField;
-    private String saveStatus = "";
-    private int saveStatusColor = 0xFFFFFFFF;
-    private int saveStatusTimer = 0;
+    private String saveMsg      = "";
+    private int    saveMsgColor = COL_OK;
+    private int    saveMsgTimer = 0;
 
-    // ── Respawn tab widgets ───────────────────────────────────────────────────
-    private List<File>   schematicFiles  = new ArrayList<>();
-    private int          selectedFile    = -1;
-    private SchematicData loadedSchema   = null;
-    private int          fileScrollOff   = 0;
+    // ── Respawn tab ───────────────────────────────────────────────────────────
+    private List<File>             fileList     = new ArrayList<>();
+    private int                    selFile      = -1;
+    private SchematicData          loaded       = null;
+    private int                    fileScroll   = 0;
 
-    // Block replacements: original blockId → replacement text field
-    private final List<String>            paletteIds    = new ArrayList<>();
-    private final List<TextFieldWidget>   replaceFields = new ArrayList<>();
-    private int paletteScrollOff = 0;
+    private final List<String>          blockIds   = new ArrayList<>();
+    private final List<TextFieldWidget> repFields  = new ArrayList<>();
+    private int palScroll = 0;
 
-    private String pasteStatus = "";
-    private int pasteStatusColor = 0xFFFFFFFF;
-    private int pasteStatusTimer = 0;
+    private String pasteMsg      = "";
+    private int    pasteMsgColor = COL_OK;
+    private int    pasteMsgTimer = 0;
 
-    // ── Layout constants ──────────────────────────────────────────────────────
-    private static final int PANEL_W = 460;
-    private static final int PANEL_H = 300;
+    private long lastRefreshMs = 0;
 
+    // ─────────────────────────────────────────────────────────────────────────
     public MainScreen() {
         super(Text.literal("Schematic Selector"));
         initStars();
-        refreshFileList();
+        refreshFiles();
     }
 
-    // ── Star init ─────────────────────────────────────────────────────────────
+    // ── Stars ─────────────────────────────────────────────────────────────────
     private void initStars() {
         for (int i = 0; i < STAR_COUNT; i++) resetStar(i, true);
     }
-
     private void resetStar(int i, boolean randomY) {
-        starX[i]   = rng.nextFloat();
-        starY[i]   = randomY ? rng.nextFloat() : -0.02f;
-        starSpd[i] = 0.001f + rng.nextFloat() * 0.003f;
-        starAlp[i] = 0.4f + rng.nextFloat() * 0.6f;
-        starSz[i]  = 1 + rng.nextInt(3);
+        sX[i]   = rng.nextFloat();
+        sY[i]   = randomY ? rng.nextFloat() : -0.02f;
+        sSpd[i] = 0.0008f + rng.nextFloat() * 0.0025f;
+        sAlp[i] = 0.5f + rng.nextFloat() * 0.5f;
+        sSz[i]  = 1 + rng.nextInt(3);
     }
 
     // ── File list ─────────────────────────────────────────────────────────────
-    private void refreshFileList() {
+    private void refreshFiles() {
         File dir = new File(MinecraftClient.getInstance().runDirectory, "schematics");
-        schematicFiles.clear();
+        List<File> fresh = new ArrayList<>();
         if (dir.exists()) {
-            File[] files = dir.listFiles(f -> f.getName().endsWith(".litematic"));
-            if (files != null) {
-                Arrays.sort(files, Comparator.comparing(File::getName));
-                schematicFiles.addAll(Arrays.asList(files));
+            File[] arr = dir.listFiles(f -> f.getName().endsWith(".litematic"));
+            if (arr != null) {
+                Arrays.sort(arr, Comparator.comparing(File::getName));
+                fresh.addAll(Arrays.asList(arr));
             }
         }
+        // Only update if the list actually changed (avoid layout flicker)
+        if (!fresh.equals(fileList)) {
+            fileList = fresh;
+            if (selFile >= fileList.size()) selFile = -1;
+        }
+        lastRefreshMs = System.currentTimeMillis();
     }
+
+    // ── Helper: panel origin ──────────────────────────────────────────────────
+    private int px() { return width  / 2 - PW / 2; }
+    private int py() { return height / 2 - PH / 2; }
 
     // ── Init widgets ──────────────────────────────────────────────────────────
     @Override
     protected void init() {
-        buildSaveWidgets();
-        buildRespawnWidgets();
-    }
-
-    private int px() { return width  / 2 - PANEL_W / 2; }
-    private int py() { return height / 2 - PANEL_H / 2; }
-
-    private void buildSaveWidgets() {
         int cx = width / 2;
         int py = py();
 
         // Tab buttons
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("💾  حفظ"),
+        addDrawableChild(ButtonWidget.builder(Text.literal("  Save  "),
                 b -> switchTab(TAB_SAVE))
-                .dimensions(px() + 10, py + 32, 100, 20).build());
+                .dimensions(px() + 8, py + 34, 90, 18).build());
 
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("🔄  رسبنت"),
+        addDrawableChild(ButtonWidget.builder(Text.literal("  Respawn  "),
                 b -> switchTab(TAB_RESPAWN))
-                .dimensions(px() + 120, py + 32, 110, 20).build());
+                .dimensions(px() + 104, py + 34, 100, 18).build());
 
         // Save name field
         saveNameField = new TextFieldWidget(textRenderer,
-                cx - 110, py + 130, 220, 20, Text.literal("اسم الملف"));
+                cx - 120, py + 138, 240, 18, Text.literal("Schematic name"));
         saveNameField.setMaxLength(64);
         saveNameField.setText("my_build");
-        this.addSelectableChild(saveNameField);
+        addSelectableChild(saveNameField);
 
         // Save button
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("💾  Save"),
+        addDrawableChild(ButtonWidget.builder(Text.literal("💾  Save Schematic"),
                 b -> doSave())
-                .dimensions(cx - 55, py + 158, 110, 22).build());
-    }
-
-    private void buildRespawnWidgets() {
-        int px = px(), py = py();
-        int cx = width / 2;
-
-        // Refresh button
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("↻"),
-                b -> { refreshFileList(); selectedFile = -1; loadedSchema = null; clearPalette(); })
-                .dimensions(px + PANEL_W - 30, py + 57, 20, 16).build());
+                .dimensions(cx - 75, py + 164, 150, 20).build());
 
         // Paste button
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("⬇  Paste Here"),
+        addDrawableChild(ButtonWidget.builder(Text.literal("⬇  Paste Here"),
                 b -> doPaste())
-                .dimensions(cx - 65, py + PANEL_H - 38, 130, 22).build());
+                .dimensions(cx - 60, py + PH - 36, 120, 20).build());
     }
 
-    private void switchTab(int tab) {
-        activeTab = tab;
+    private void switchTab(int t) {
+        activeTab = t;
         clearPalette();
     }
 
@@ -149,71 +159,59 @@ public class MainScreen extends Screen {
     private void doSave() {
         SelectionManager sel = SelectionManager.getInstance();
         if (!sel.hasSelection()) {
-            saveStatus = "⚠  حدد Pos1 و Pos2 أولاً!";
-            saveStatusColor = 0xFFFF8844;
-            saveStatusTimer = 80;
+            flash(true, "Select Pos1 and Pos2 first  (press V to enable selection mode)", COL_WARN);
             return;
         }
         String name = saveNameField.getText().trim();
         if (name.isEmpty()) name = "my_build";
 
         if (SchematicWriter.save(name)) {
-            saveStatus = "✅  تم الحفظ: schematics/" + name + ".litematic";
-            saveStatusColor = 0xFF44FF88;
+            flash(true, "Saved:  schematics/" + name + ".litematic", COL_OK);
         } else {
-            saveStatus = "❌  خطأ في الحفظ!";
-            saveStatusColor = 0xFFFF4444;
+            flash(true, "Error saving schematic!", COL_ERR);
         }
-        saveStatusTimer = 100;
+        refreshFiles();
+    }
+
+    private void flash(boolean isSave, String msg, int color) {
+        if (isSave) { saveMsg = msg; saveMsgColor = color; saveMsgTimer = 100; }
+        else        { pasteMsg = msg; pasteMsgColor = color; pasteMsgTimer = 100; }
     }
 
     // ── Paste ─────────────────────────────────────────────────────────────────
     private void doPaste() {
-        if (loadedSchema == null) {
-            pasteStatus = "⚠  اختر ملف أولاً!";
-            pasteStatusColor = 0xFFFF8844;
-            pasteStatusTimer = 80;
+        if (loaded == null) {
+            flash(false, "Select a schematic from the list first!", COL_WARN);
             return;
         }
-        Map<String, String> replacements = new LinkedHashMap<>();
-        for (int i = 0; i < paletteIds.size(); i++) {
-            if (i < replaceFields.size()) {
-                String val = replaceFields.get(i).getText().trim();
-                if (!val.isEmpty()) replacements.put(paletteIds.get(i), val);
-            }
+        Map<String, String> reps = new LinkedHashMap<>();
+        for (int i = 0; i < blockIds.size() && i < repFields.size(); i++) {
+            String v = repFields.get(i).getText().trim();
+            if (!v.isEmpty()) reps.put(blockIds.get(i), v);
         }
-        int placed = SchematicPaster.paste(loadedSchema, replacements);
-        if (placed >= 0) {
-            pasteStatus = "✅  تم إنزال " + placed + " بلوكة";
-            pasteStatusColor = 0xFF44FF88;
-        } else {
-            pasteStatus = "❌  فشل الإنزال!";
-            pasteStatusColor = 0xFFFF4444;
-        }
-        pasteStatusTimer = 100;
+        int n = SchematicPaster.paste(loaded, reps);
+        flash(false, n >= 0 ? "Placed " + n + " blocks at your position!" : "Paste failed!", n >= 0 ? COL_OK : COL_ERR);
     }
 
-    // ── Palette list ──────────────────────────────────────────────────────────
+    // ── Palette ───────────────────────────────────────────────────────────────
     private void loadPalette() {
         clearPalette();
-        if (loadedSchema == null) return;
-
-        for (Map.Entry<String, Integer> e : loadedSchema.blockCounts.entrySet()) {
-            paletteIds.add(e.getKey());
-            TextFieldWidget f = new TextFieldWidget(textRenderer, 0, 0, 120, 14,
+        if (loaded == null) return;
+        for (String id : loaded.blockCounts.keySet()) {
+            blockIds.add(id);
+            TextFieldWidget f = new TextFieldWidget(textRenderer, 0, 0, 110, 12,
                     Text.literal("replacement"));
             f.setMaxLength(64);
-            f.setText("");
-            this.addSelectableChild(f);
-            replaceFields.add(f);
+            addSelectableChild(f);
+            repFields.add(f);
         }
     }
 
     private void clearPalette() {
-        for (TextFieldWidget f : replaceFields) this.remove(f);
-        replaceFields.clear();
-        paletteIds.clear();
-        paletteScrollOff = 0;
+        repFields.forEach(this::remove);
+        repFields.clear();
+        blockIds.clear();
+        palScroll = 0;
     }
 
     // ── Render ────────────────────────────────────────────────────────────────
@@ -221,228 +219,315 @@ public class MainScreen extends Screen {
     public void render(DrawContext ctx, int mx, int my, float delta) {
         tick++;
 
+        // Auto-refresh files every 2 seconds in Respawn tab
+        if (activeTab == TAB_RESPAWN && System.currentTimeMillis() - lastRefreshMs > 2000) {
+            refreshFiles();
+        }
+
         int W = width, H = height;
         int px = px(), py = py();
 
-        // ── Black background
-        ctx.fill(0, 0, W, H, 0xFF000000);
+        // ── Full-screen black background
+        ctx.fill(0, 0, W, H, COL_BG);
 
-        // ── Falling stars
+        // ── Stars
         for (int i = 0; i < STAR_COUNT; i++) {
-            starY[i] += starSpd[i];
-            if (starY[i] > 1.05f) resetStar(i, false);
+            sY[i] += sSpd[i];
+            if (sY[i] > 1.05f) resetStar(i, false);
 
-            int sx = (int)(starX[i] * W);
-            int sy = (int)(starY[i] * H);
-            int sz = (int) starSz[i];
-            int sa = (int)(starAlp[i] * 220);
+            int sx = (int)(sX[i] * W);
+            int sy = (int)(sY[i] * H);
+            int sz = (int) sSz[i];
+            int sa = (int)(sAlp[i] * 255);
 
-            // Trail
-            int trailLen = 6 + (int)(starSpd[i] / 0.001f);
-            for (int t = 1; t <= trailLen; t++) {
-                int ta = sa * (trailLen - t) / trailLen / 3;
-                int ty2 = sy - t * 2;
-                if (ty2 >= 0) ctx.fill(sx, ty2, sx + sz, ty2 + sz,
-                        (ta << 24) | 0xAADDFF);
+            // Trail (white-blue tint)
+            for (int t = 1; t <= 8; t++) {
+                int ta = sa * (8 - t) / 8 / 4;
+                int ty = sy - t * 2;
+                if (ty >= 0) ctx.fill(sx, ty, sx + sz, ty + sz, (ta << 24) | 0xCCAAFF);
             }
-            // Core
-            ctx.fill(sx, sy, sx + sz, sy + sz, (sa << 24) | 0xFFFFFF);
+            // Star core (bright white with purple tint)
+            ctx.fill(sx, sy, sx + sz, sy + sz, (sa << 24) | 0xFFEEFF);
         }
 
         // ── Panel shadow
-        ctx.fill(px + 4, py + 4, px + PANEL_W + 4, py + PANEL_H + 4, 0x55000000);
+        ctx.fill(px + 5, py + 5, px + PW + 5, py + PH + 5, 0x66000000);
 
-        // ── Panel background
-        ctx.fill(px, py, px + PANEL_W, py + PANEL_H, 0xDD050512);
+        // ── Panel body
+        ctx.fill(px, py, px + PW, py + PH, COL_PANEL);
 
-        // ── Animated border
-        float glow = (float)((Math.sin(tick * 0.05f) + 1.0) / 2.0);
-        int br = (int)(60 + glow * 100);
-        int bb = (int)(200 + glow * 55);
-        int borderCol = 0xFF000000 | (br << 16) | (10 << 8) | bb;
-        ctx.fill(px,              py,              px + PANEL_W, py + 2,        borderCol);
-        ctx.fill(px,              py + PANEL_H-2,  px + PANEL_W, py + PANEL_H,  borderCol);
-        ctx.fill(px,              py,              px + 2,       py + PANEL_H,  borderCol);
-        ctx.fill(px + PANEL_W-2,  py,              px + PANEL_W, py + PANEL_H,  borderCol);
+        // ── Animated glow border
+        float glow = (float)((Math.sin(tick * 0.06) + 1.0) / 2.0);
+        int bCol = blendColor(COL_BORDER_DIM, COL_BORDER, glow);
+        drawBorder(ctx, px, py, PW, PH, 2, bCol);
+
+        // ── Title bar background
+        ctx.fill(px, py, px + PW, py + 30, 0x88110022);
 
         // ── Title
-        float pulse = (float)((Math.sin(tick * 0.07f) + 1.0) / 2.0);
-        int tr = (int)(140 + pulse * 115); int tg = (int)(40 + pulse * 60);
-        int titleCol = 0xFF000000 | (tr << 16) | (tg << 8) | 255;
-        String title = "✦  Schematic Selector  ✦";
-        ctx.drawText(textRenderer, title,
-                width/2 - textRenderer.getWidth(title)/2, py + 10, titleCol, false);
+        String titleStr = "✦  SCHEMATIC SELECTOR  ✦";
+        int titleX = width / 2 - textRenderer.getWidth(titleStr) / 2;
+        // Glow shadow
+        ctx.drawText(textRenderer, titleStr, titleX + 1, py + 10, 0x66CC00FF, false);
+        ctx.drawText(textRenderer, titleStr, titleX, py + 9, COL_TITLE, false);
 
-        // ── Tab bar background
-        ctx.fill(px, py + 28, px + PANEL_W, py + 56, 0x44001133);
+        // ── Tab bar
+        ctx.fill(px, py + 30, px + PW, py + 56, 0x44110033);
 
-        // ── Active tab highlight
-        int tabX = (activeTab == TAB_SAVE) ? px + 10 : px + 120;
-        int tabW = (activeTab == TAB_SAVE) ? 100 : 110;
-        ctx.fill(tabX - 2, py + 28, tabX + tabW + 2, py + 56, 0x6600AAFF);
+        // Active tab indicator
+        int tBx = (activeTab == TAB_SAVE) ? px + 8 : px + 104;
+        int tBw = (activeTab == TAB_SAVE) ? 90 : 100;
+        ctx.fill(tBx - 1, py + 30, tBx + tBw + 1, py + 56, COL_TAB_ACTIVE);
+        drawBorder(ctx, tBx - 1, py + 30, tBw + 2, 26, 1, COL_BORDER);
 
-        // ── Divider
-        ctx.fill(px + 10, py + 56, px + PANEL_W - 10, py + 57, 0x88224477);
+        // Tab divider line
+        ctx.fill(px + 8, py + 55, px + PW - 8, py + 57, COL_BORDER_DIM);
 
         // ── Tab content
-        if (activeTab == TAB_SAVE)    renderSaveTab(ctx, mx, my, delta);
-        else                           renderRespawnTab(ctx, mx, my, delta);
+        if (activeTab == TAB_SAVE) renderSaveTab(ctx, mx, my, delta);
+        else                        renderRespawnTab(ctx, mx, my, delta);
 
         super.render(ctx, mx, my, delta);
     }
 
-    // ── Save tab render ───────────────────────────────────────────────────────
+    // ── Save tab ──────────────────────────────────────────────────────────────
     private void renderSaveTab(DrawContext ctx, int mx, int my, float delta) {
-        int cx = width / 2, py = py();
+        int px = px(), py = py(), cx = width / 2;
         SelectionManager sel = SelectionManager.getInstance();
 
-        // Mode status
-        String modeStr = sel.isSelectionMode()
-                ? "§aوضع التحديد: §2مفعّل" : "§cوضع التحديد: §4معطّل";
-        ctx.drawText(textRenderer, Text.literal(sel.isSelectionMode()
-                ? "● وضع التحديد: مفعّل" : "○ وضع التحديد: معطّل"),
-                cx - 80, py + 65,
-                sel.isSelectionMode() ? 0xFF44FF88 : 0xFFFF6644, false);
+        // Selection mode badge
+        boolean on = sel.isSelectionMode();
+        String modeLabel = on ? "● SELECTION  ON" : "○ SELECTION  OFF";
+        int modeCol = on ? COL_OK : COL_ERR;
+        ctx.fill(px + 10, py + 63, px + 200, py + 78, on ? 0x33006622 : 0x33330011);
+        drawBorder(ctx, px + 10, py + 63, 190, 15, 1, modeCol);
+        ctx.drawText(textRenderer, modeLabel, px + 14, py + 67, modeCol, false);
 
-        // Pos1
-        String p1 = sel.getPos1() != null
-                ? fmt(sel.getPos1()) : "لم يُحدد";
-        ctx.drawText(textRenderer, "Pos1: " + p1, px() + 20, py + 80, 0xFF88CCFF, false);
+        // Key hints inside badge
+        if (on) {
+            ctx.drawText(textRenderer, "Left-click = Pos1     Right-click = Pos2",
+                    px + 210, py + 67, COL_MUTED, false);
+        } else {
+            ctx.drawText(textRenderer, "Press  V  to enable selection mode",
+                    px + 210, py + 67, COL_MUTED, false);
+        }
 
-        // Pos2
-        String p2 = sel.getPos2() != null
-                ? fmt(sel.getPos2()) : "لم يُحدد";
-        ctx.drawText(textRenderer, "Pos2: " + p2, px() + 20, py + 92, 0xFF88CCFF, false);
+        // Pos1 / Pos2
+        drawLabeledPos(ctx, px + 12, py + 88, "Pos 1", sel.getPos1());
+        drawLabeledPos(ctx, px + 12, py + 103, "Pos 2", sel.getPos2());
 
         // Size
         if (sel.hasSelection()) {
-            String sz = "الحجم: " + sel.getWidth() + " × " + sel.getHeight() + " × " + sel.getLength()
-                    + "  (" + (sel.getWidth() * sel.getHeight() * sel.getLength()) + " بلوكة)";
-            ctx.drawText(textRenderer, sz, cx - textRenderer.getWidth(sz)/2, py + 108, 0xFFAAAAAA, false);
+            int vol = sel.getWidth() * sel.getHeight() * sel.getLength();
+            String szStr = "Size:  " + sel.getWidth() + " x " + sel.getHeight() + " x " + sel.getLength()
+                    + "   (" + vol + " blocks)";
+            ctx.drawText(textRenderer, szStr,
+                    cx - textRenderer.getWidth(szStr) / 2, py + 120, COL_MUTED, false);
         }
 
-        // Keys hint
-        ctx.drawText(textRenderer, "V = تفعيل التحديد  |  كليك يسار = Pos1  |  كليك يمين = Pos2",
-                cx - textRenderer.getWidth("V = تفعيل التحديد  |  كليك يسار = Pos1  |  كليك يمين = Pos2")/2,
-                py + 120, 0xFF556688, false);
+        // Divider
+        ctx.fill(px + 20, py + 132, px + PW - 20, py + 133, COL_BORDER_DIM);
 
-        // Name label
-        ctx.drawText(textRenderer, "اسم الملف:", px() + 20, py + 133, 0xFFCCCCCC, false);
+        // Name field label
+        ctx.drawText(textRenderer, "FILE NAME", px + 12, py + 141, COL_LABEL, false);
 
         // Name field
-        saveNameField.setX(width/2 - 110);
-        saveNameField.setY(py + 130);
+        saveNameField.setX(cx - 120);
+        saveNameField.setY(py + 138);
         saveNameField.render(ctx, mx, my, delta);
 
-        // Status
-        if (saveStatusTimer > 0) {
-            saveStatusTimer--;
-            ctx.drawText(textRenderer, saveStatus,
-                    cx - textRenderer.getWidth(saveStatus)/2, py + 186, saveStatusColor, false);
+        // Hint
+        ctx.drawText(textRenderer, "Saves to:  .minecraft/schematics/<name>.litematic",
+                cx - textRenderer.getWidth("Saves to:  .minecraft/schematics/<name>.litematic") / 2,
+                py + 190, COL_MUTED, false);
+
+        // Status message
+        if (saveMsgTimer-- > 0) {
+            ctx.drawText(textRenderer, saveMsg,
+                    cx - textRenderer.getWidth(saveMsg) / 2, py + 205, saveMsgColor, false);
         }
+
+        // Keybinding reminder at bottom
+        ctx.fill(px, py + PH - 22, px + PW, py + PH, 0x44110033);
+        String keys = "V = Toggle Selection   |   M = Open / Close Menu";
+        ctx.drawText(textRenderer, keys,
+                cx - textRenderer.getWidth(keys) / 2, py + PH - 14, COL_MUTED, false);
     }
 
-    // ── Respawn tab render ────────────────────────────────────────────────────
+    // ── Respawn tab ───────────────────────────────────────────────────────────
     private void renderRespawnTab(DrawContext ctx, int mx, int my, float delta) {
-        int px = px(), py = py();
-        int cx = width / 2;
+        int px = px(), py = py(), cx = width / 2;
 
-        // ── File list panel
-        ctx.fill(px + 8, py + 60, px + 200, py + PANEL_H - 40, 0x55001122);
-        ctx.drawText(textRenderer, "الملفات:", px + 10, py + 62, 0xFF8899BB, false);
+        // Left panel: file list
+        int listX1 = px + 8, listX2 = px + 200;
+        int listY1 = py + 60, listY2 = py + PH - 38;
 
-        if (schematicFiles.isEmpty()) {
-            ctx.drawText(textRenderer, "لا توجد ملفات",
-                    px + 14, py + 78, 0xFF555566, false);
+        ctx.fill(listX1, listY1, listX2, listY2, COL_PANEL_INNER);
+        drawBorder(ctx, listX1, listY1, listX2 - listX1, listY2 - listY1, 1, COL_BORDER_DIM);
+        ctx.drawText(textRenderer, "SCHEMATICS", listX1 + 4, listY1 + 4, COL_LABEL, false);
+
+        // Auto-refresh indicator
+        long ms = System.currentTimeMillis() - lastRefreshMs;
+        String refreshStr = "↻  " + (ms < 1000 ? "just now" : (ms / 1000) + "s ago");
+        ctx.drawText(textRenderer, refreshStr,
+                listX2 - textRenderer.getWidth(refreshStr) - 4, listY1 + 4, COL_MUTED, false);
+
+        ctx.fill(listX1, listY1 + 15, listX2, listY1 + 16, COL_BORDER_DIM);
+
+        if (fileList.isEmpty()) {
+            ctx.drawText(textRenderer, "No .litematic files found",
+                    listX1 + 6, listY1 + 22, COL_MUTED, false);
+            ctx.drawText(textRenderer, "in schematics/ folder",
+                    listX1 + 6, listY1 + 34, COL_MUTED, false);
         } else {
-            int visibleFiles = 10;
-            for (int i = fileScrollOff; i < Math.min(schematicFiles.size(), fileScrollOff + visibleFiles); i++) {
-                File f = schematicFiles.get(i);
-                int fy = py + 74 + (i - fileScrollOff) * 14;
-                boolean sel = (i == selectedFile);
+            int rows = (listY2 - listY1 - 18) / 14;
+            for (int i = fileScroll; i < Math.min(fileList.size(), fileScroll + rows); i++) {
+                File f = fileList.get(i);
+                int ry = listY1 + 18 + (i - fileScroll) * 14;
+                boolean isSel = (i == selFile);
 
-                if (sel) ctx.fill(px + 9, fy - 1, px + 199, fy + 12, 0x66003366);
+                if (isSel) {
+                    ctx.fill(listX1 + 1, ry - 1, listX2 - 1, ry + 13, COL_SEL_ROW);
+                    ctx.fill(listX1 + 1, ry - 1, listX1 + 3, ry + 13, COL_BORDER);
+                }
 
                 String nm = f.getName().replace(".litematic", "");
-                if (nm.length() > 18) nm = nm.substring(0, 16) + "..";
-                ctx.drawText(textRenderer, (sel ? "▶ " : "  ") + nm,
-                        px + 12, fy, sel ? 0xFF66CCFF : 0xFFAABBCC, false);
+                if (textRenderer.getWidth(nm) > listX2 - listX1 - 16)
+                    nm = truncate(nm, listX2 - listX1 - 20);
+                ctx.drawText(textRenderer, nm, listX1 + 8, ry + 1,
+                        isSel ? 0xFFFFEEFF : COL_VALUE, false);
             }
         }
 
-        // ── Palette / block list panel
-        ctx.fill(px + 205, py + 60, px + PANEL_W - 8, py + PANEL_H - 40, 0x55001122);
+        // Right panel: palette + replacements
+        int palX1 = px + 206, palX2 = px + PW - 8;
+        int palY1 = py + 60, palY2 = py + PH - 38;
 
-        if (loadedSchema != null) {
-            // Info
-            ctx.drawText(textRenderer,
-                    loadedSchema.name + "  (" + loadedSchema.width + "×" + loadedSchema.height + "×" + loadedSchema.length + ")",
-                    px + 208, py + 62, 0xFF88CCFF, false);
-            ctx.drawText(textRenderer, "البلوكة  →  استبدال", px + 208, py + 74, 0xFF556688, false);
-            ctx.fill(px + 205, py + 84, px + PANEL_W - 8, py + 85, 0x55224466);
+        ctx.fill(palX1, palY1, palX2, palY2, COL_PANEL_INNER);
+        drawBorder(ctx, palX1, palY1, palX2 - palX1, palY2 - palY1, 1, COL_BORDER_DIM);
 
-            int visibleBlocks = 11;
-            List<Map.Entry<String, Integer>> entries = new ArrayList<>(loadedSchema.blockCounts.entrySet());
-            for (int i = paletteScrollOff; i < Math.min(entries.size(), paletteScrollOff + visibleBlocks); i++) {
+        if (loaded == null) {
+            ctx.drawText(textRenderer, "BLOCK PALETTE", palX1 + 4, palY1 + 4, COL_LABEL, false);
+            ctx.fill(palX1, palY1 + 15, palX2, palY1 + 16, COL_BORDER_DIM);
+            ctx.drawText(textRenderer, "← Select a file", palX1 + 30, palY1 + 80, COL_MUTED, false);
+            ctx.drawText(textRenderer, "to see its blocks", palX1 + 20, palY1 + 94, COL_MUTED, false);
+        } else {
+            // Header
+            String szStr = loaded.width + "×" + loaded.height + "×" + loaded.length;
+            ctx.drawText(textRenderer, loaded.name, palX1 + 4, palY1 + 4, 0xFFEEDDFF, false);
+            ctx.drawText(textRenderer, szStr, palX2 - textRenderer.getWidth(szStr) - 4, palY1 + 4, COL_MUTED, false);
+            ctx.fill(palX1, palY1 + 15, palX2, palY1 + 16, COL_BORDER_DIM);
+
+            // Column headers
+            ctx.drawText(textRenderer, "Block", palX1 + 4, palY1 + 19, COL_LABEL, false);
+            ctx.drawText(textRenderer, "Count", palX1 + 112, palY1 + 19, COL_LABEL, false);
+            ctx.drawText(textRenderer, "Replace with...", palX1 + 155, palY1 + 19, COL_LABEL, false);
+            ctx.fill(palX1, palY1 + 28, palX2, palY1 + 29, COL_BORDER_DIM);
+
+            List<Map.Entry<String, Integer>> entries = new ArrayList<>(loaded.blockCounts.entrySet());
+            int rowH  = 14;
+            int rows  = (palY2 - palY1 - 32) / rowH;
+            int visStart = palScroll;
+
+            for (int i = visStart; i < Math.min(entries.size(), visStart + rows); i++) {
                 Map.Entry<String, Integer> e = entries.get(i);
-                int by = py + 88 + (i - paletteScrollOff) * 15;
+                int ry = palY1 + 30 + (i - visStart) * rowH;
 
-                // Block name (short)
+                // Alternating row tint
+                if ((i % 2) == 0) ctx.fill(palX1 + 1, ry, palX2 - 1, ry + rowH, 0x11BB88FF);
+
+                // Block name
                 String bname = e.getKey().replace("minecraft:", "");
-                if (bname.length() > 13) bname = bname.substring(0, 11) + "..";
-                ctx.drawText(textRenderer, bname + " ×" + e.getValue(), px + 208, by, 0xFFCCDDEE, false);
+                if (textRenderer.getWidth(bname) > 100) bname = truncate(bname, 100);
+                ctx.drawText(textRenderer, bname, palX1 + 4, ry + 2, COL_VALUE, false);
 
-                // Replacement field
-                if (i < replaceFields.size()) {
-                    TextFieldWidget f = replaceFields.get(i - paletteScrollOff +
-                            Math.max(0, paletteScrollOff));
-                    // Actually position them
-                    if (i - paletteScrollOff < replaceFields.size()) {
-                        replaceFields.get(i - paletteScrollOff).setX(px + 310);
-                        replaceFields.get(i - paletteScrollOff).setY(by - 1);
-                        replaceFields.get(i - paletteScrollOff).render(ctx, 0, 0, delta);
-                    }
+                // Count
+                ctx.drawText(textRenderer, String.valueOf(e.getValue()), palX1 + 112, ry + 2, COL_MUTED, false);
+
+                // Replace field
+                int fi = i - visStart;
+                if (fi < repFields.size()) {
+                    repFields.get(fi).setX(palX1 + 152);
+                    repFields.get(fi).setY(ry + 1);
+                    repFields.get(fi).setHeight(rowH - 1);
+                    repFields.get(fi).render(ctx, 0, 0, delta);
                 }
             }
-        } else {
-            ctx.drawText(textRenderer, "← اختر ملفاً",
-                    px + 230, py + 160, 0xFF334455, false);
         }
 
         // Paste status
-        if (pasteStatusTimer > 0) {
-            pasteStatusTimer--;
-            ctx.drawText(textRenderer, pasteStatus,
-                    cx - textRenderer.getWidth(pasteStatus)/2,
-                    py + PANEL_H - 52, pasteStatusColor, false);
+        if (pasteMsgTimer-- > 0) {
+            ctx.drawText(textRenderer, pasteMsg,
+                    cx - textRenderer.getWidth(pasteMsg) / 2, py + PH - 52, pasteMsgColor, false);
         }
+
+        // Bottom bar
+        ctx.fill(px, py + PH - 22, px + PW, py + PH, 0x44110033);
+        String hint = "Files auto-refresh every 2 s  —  no game restart needed";
+        ctx.drawText(textRenderer, hint,
+                cx - textRenderer.getWidth(hint) / 2, py + PH - 14, COL_MUTED, false);
     }
 
-    // ── Mouse click ───────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void drawLabeledPos(DrawContext ctx, int x, int y, String label, BlockPos pos) {
+        ctx.drawText(textRenderer, label + ":", x, y, COL_LABEL, false);
+        String val = pos != null
+                ? String.format("(%d, %d, %d)", pos.getX(), pos.getY(), pos.getZ())
+                : "not set";
+        ctx.drawText(textRenderer, val, x + 38, y, pos != null ? COL_VALUE : COL_MUTED, false);
+    }
+
+    private void drawBorder(DrawContext ctx, int x, int y, int w, int h, int t, int col) {
+        ctx.fill(x,         y,         x + w,     y + t,     col);
+        ctx.fill(x,         y + h - t, x + w,     y + h,     col);
+        ctx.fill(x,         y,         x + t,     y + h,     col);
+        ctx.fill(x + w - t, y,         x + w,     y + h,     col);
+    }
+
+    private String truncate(String s, int maxW) {
+        while (s.length() > 3 && textRenderer.getWidth(s + "..") > maxW) {
+            s = s.substring(0, s.length() - 1);
+        }
+        return s + "..";
+    }
+
+    private int blendColor(int a, int b, float t) {
+        int ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
+        int br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
+        int r = (int)(ar + (br - ar) * t);
+        int g = (int)(ag + (bg - ag) * t);
+        int bl = (int)(ab + (bb - ab) * t);
+        return 0xFF000000 | (r << 16) | (g << 8) | bl;
+    }
+
+    // ── Input ─────────────────────────────────────────────────────────────────
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
         if (activeTab == TAB_RESPAWN) {
             int px = px(), py = py();
+            int listX1 = px + 8, listX2 = px + 200;
+            int listY1 = py + 60 + 18;
 
-            // File list click
-            if (mx >= px + 8 && mx <= px + 200 && my >= py + 74) {
-                int clickedRow = ((int) my - py - 74) / 14;
-                int fileIdx = fileScrollOff + clickedRow;
-                if (fileIdx >= 0 && fileIdx < schematicFiles.size()) {
-                    selectedFile = fileIdx;
+            // File row click
+            if (mx >= listX1 && mx <= listX2 && my >= listY1) {
+                int rows = (py + PH - 38 - listY1) / 14;
+                int clicked = ((int) my - listY1) / 14;
+                int idx = fileScroll + clicked;
+                if (idx >= 0 && idx < fileList.size() && clicked < rows) {
+                    selFile = idx;
                     clearPalette();
-                    loadedSchema = SchematicReader.read(schematicFiles.get(fileIdx));
-                    if (loadedSchema != null) loadPalette();
+                    loaded = SchematicReader.read(fileList.get(idx));
+                    if (loaded != null) loadPalette();
                     return true;
                 }
             }
         }
 
-        if (activeTab == TAB_SAVE && saveNameField != null) {
+        if (activeTab == TAB_SAVE && saveNameField != null)
             saveNameField.mouseClicked(mx, my, button);
-        }
 
-        for (TextFieldWidget f : replaceFields) f.mouseClicked(mx, my, button);
+        for (TextFieldWidget f : repFields) f.mouseClicked(mx, my, button);
 
         return super.mouseClicked(mx, my, button);
     }
@@ -451,18 +536,11 @@ public class MainScreen extends Screen {
     public boolean mouseScrolled(double mx, double my, double hAmt, double vAmt) {
         int px = px(), py = py();
         if (activeTab == TAB_RESPAWN) {
-            if (mx >= px + 8 && mx <= px + 200) {
-                fileScrollOff = Math.max(0, Math.min(
-                        Math.max(0, schematicFiles.size() - 10),
-                        fileScrollOff - (int) vAmt));
-                return true;
-            }
-            if (mx >= px + 205) {
-                paletteScrollOff = Math.max(0, Math.min(
-                        Math.max(0, paletteIds.size() - 11),
-                        paletteScrollOff - (int) vAmt));
-                return true;
-            }
+            if (mx <= px + 200)
+                fileScroll = clamp(fileScroll - (int) vAmt, 0, Math.max(0, fileList.size() - 10));
+            else
+                palScroll = clamp(palScroll - (int) vAmt, 0, Math.max(0, blockIds.size() - 11));
+            return true;
         }
         return super.mouseScrolled(mx, my, hAmt, vAmt);
     }
@@ -473,9 +551,8 @@ public class MainScreen extends Screen {
             if (saveNameField.keyPressed(key, scan, mod)) return true;
             if (key == 257) { doSave(); return true; }
         }
-        for (TextFieldWidget f : replaceFields) {
+        for (TextFieldWidget f : repFields)
             if (f.isFocused() && f.keyPressed(key, scan, mod)) return true;
-        }
         return super.keyPressed(key, scan, mod);
     }
 
@@ -483,7 +560,7 @@ public class MainScreen extends Screen {
     public boolean charTyped(char c, int mod) {
         if (activeTab == TAB_SAVE && saveNameField != null && saveNameField.isFocused())
             return saveNameField.charTyped(c, mod);
-        for (TextFieldWidget f : replaceFields)
+        for (TextFieldWidget f : repFields)
             if (f.isFocused() && f.charTyped(c, mod)) return true;
         return super.charTyped(c, mod);
     }
@@ -491,7 +568,7 @@ public class MainScreen extends Screen {
     @Override public boolean shouldPause()       { return false; }
     @Override public boolean shouldCloseOnEsc()  { return true; }
 
-    private String fmt(BlockPos p) {
-        return "(" + p.getX() + ", " + p.getY() + ", " + p.getZ() + ")";
+    private int clamp(int v, int lo, int hi) {
+        return Math.max(lo, Math.min(hi, v));
     }
 }
