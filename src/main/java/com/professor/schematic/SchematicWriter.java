@@ -3,25 +3,19 @@ package com.professor.schematic;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.nbt.*;
+import net.minecraft.registry.Registries;
+import net.minecraft.state.property.Property;
 import net.minecraft.util.math.BlockPos;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.io.*;
+import java.util.*;
 
+/**
+ * Saves selections as Sponge Schematic v2 (.schematic)
+ * Compatible with WorldEdit, FAWE, and most modern schematic tools.
+ */
 public class SchematicWriter {
 
-    /**
-     * Saves the current selection as a vanilla Minecraft Structure NBT file (.nbt).
-     * Compatible with structure blocks and most schematic tools.
-     *
-     * @param name file name (without extension)
-     * @return true on success
-     */
     public static boolean save(String name) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.world == null) return false;
@@ -30,76 +24,110 @@ public class SchematicWriter {
         if (!sel.hasSelection()) return false;
 
         BlockPos min = sel.getMin();
-        BlockPos max = sel.getMax();
         int w = sel.getWidth();
         int h = sel.getHeight();
         int l = sel.getLength();
 
-        // Build palette and block list
-        List<BlockState> palette = new ArrayList<>();
-        Map<BlockState, Integer> paletteIndex = new HashMap<>();
-        NbtList blockList = new NbtList();
+        // Build palette: blockState string → palette index
+        Map<String, Integer> palette = new LinkedHashMap<>();
+        palette.put("minecraft:air", 0); // air always index 0
 
+        // Collect all block states and assign palette indices
+        int totalBlocks = w * h * l;
+        int[] paletteIndices = new int[totalBlocks];
+
+        int idx = 0;
         for (int y = 0; y < h; y++) {
             for (int z = 0; z < l; z++) {
                 for (int x = 0; x < w; x++) {
                     BlockPos worldPos = min.add(x, y, z);
                     BlockState state = client.world.getBlockState(worldPos);
+                    String stateStr = blockStateToString(state);
 
-                    int idx = paletteIndex.computeIfAbsent(state, s -> {
-                        palette.add(s);
-                        return palette.size() - 1;
-                    });
-
-                    NbtCompound entry = new NbtCompound();
-                    NbtList posList = new NbtList();
-                    posList.add(NbtInt.of(x));
-                    posList.add(NbtInt.of(y));
-                    posList.add(NbtInt.of(z));
-                    entry.put("pos", posList);
-                    entry.putInt("state", idx);
-                    blockList.add(entry);
+                    palette.computeIfAbsent(stateStr, k -> palette.size());
+                    paletteIndices[idx++] = palette.get(stateStr);
                 }
             }
         }
 
-        // Build palette NBT
-        NbtList paletteNbt = new NbtList();
-        for (BlockState state : palette) {
-            paletteNbt.add(BlockState.CODEC
-                    .encodeStart(net.minecraft.nbt.NbtOps.INSTANCE, state)
-                    .result()
-                    .orElseGet(NbtCompound::new));
+        // Encode BlockData as varint byte array
+        byte[] blockData = encodeVarintArray(paletteIndices);
+
+        // Build Palette NBT compound
+        NbtCompound paletteNbt = new NbtCompound();
+        for (Map.Entry<String, Integer> entry : palette.entrySet()) {
+            paletteNbt.putInt(entry.getKey(), entry.getValue());
         }
 
-        // Build size NBT
-        NbtList sizeNbt = new NbtList();
-        sizeNbt.add(NbtInt.of(w));
-        sizeNbt.add(NbtInt.of(h));
-        sizeNbt.add(NbtInt.of(l));
-
-        // Root compound
+        // Build root compound (Sponge Schematic v2)
         NbtCompound root = new NbtCompound();
-        root.put("size", sizeNbt);
-        root.put("palette", paletteNbt);
-        root.put("blocks", blockList);
-        root.put("entities", new NbtList());
-        root.putInt("DataVersion", 3953); // 1.21.1
+        root.putShort("Version", (short) 2);
+        root.putInt("DataVersion", 3953); // Minecraft 1.21.1
+        root.putShort("Width", (short) w);
+        root.putShort("Height", (short) h);
+        root.putShort("Length", (short) l);
+        root.put("Offset", new NbtIntArray(new int[]{0, 0, 0}));
+        root.putInt("PaletteMax", palette.size());
+        root.put("Palette", paletteNbt);
+        root.put("BlockData", new NbtByteArray(blockData));
+        root.put("BlockEntities", new NbtList());
+        root.put("Entities", new NbtList());
 
-        // Save to file
+        // Wrap in "Schematic" key (required by Sponge format)
+        NbtCompound wrapper = new NbtCompound();
+        wrapper.put("Schematic", root);
+
+        // Save to .schematic file
         File schematicsDir = new File(client.runDirectory, "schematics");
         if (!schematicsDir.exists()) schematicsDir.mkdirs();
 
         String safeName = name.trim().replaceAll("[^a-zA-Z0-9_\\-]", "_");
         if (safeName.isEmpty()) safeName = "schematic";
-        File outFile = new File(schematicsDir, safeName + ".nbt");
+        File outFile = new File(schematicsDir, safeName + ".schematic");
 
         try (FileOutputStream fos = new FileOutputStream(outFile)) {
-            NbtIo.writeCompressed(root, fos);
+            NbtIo.writeCompressed(wrapper, fos);
             return true;
         } catch (IOException e) {
             e.printStackTrace();
             return false;
         }
+    }
+
+    /**
+     * Converts a BlockState to its string representation.
+     * Example: "minecraft:oak_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]"
+     */
+    @SuppressWarnings("unchecked")
+    private static String blockStateToString(BlockState state) {
+        String blockId = Registries.BLOCK.getId(state.getBlock()).toString();
+        Collection<Property<?>> props = state.getProperties();
+        if (props.isEmpty()) return blockId;
+
+        StringBuilder sb = new StringBuilder(blockId).append('[');
+        boolean first = true;
+        for (Property<?> prop : props) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append(prop.getName()).append('=')
+              .append(((Property<Comparable>) prop).name(state.get(prop)));
+        }
+        sb.append(']');
+        return sb.toString();
+    }
+
+    /**
+     * Encodes an int array as varints into a byte array.
+     */
+    private static byte[] encodeVarintArray(int[] values) {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        for (int value : values) {
+            while ((value & ~0x7F) != 0) {
+                buf.write((value & 0x7F) | 0x80);
+                value >>>= 7;
+            }
+            buf.write(value);
+        }
+        return buf.toByteArray();
     }
 }
