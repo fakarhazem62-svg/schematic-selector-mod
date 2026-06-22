@@ -12,10 +12,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - mc: "1.20.6"
-            yarn: "1.20.6+build.3"
-            loader: "0.15.11"
-            fabric_api: "0.99.2+1.20.6"
           - mc: "1.21.1"
             yarn: "1.21.1+build.3"
             loader: "0.16.9"
@@ -24,6 +20,10 @@ jobs:
             yarn: "1.21.4+build.8"
             loader: "0.16.9"
             fabric_api: "0.110.0+1.21.4"
+          - mc: "1.21.5"
+            yarn: "1.21.5+build.1"
+            loader: "0.16.10"
+            fabric_api: "0.119.0+1.21.5"
 
     steps:
       - uses: actions/checkout@v4
