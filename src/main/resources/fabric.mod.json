@@ -4,7 +4,9 @@
   "version": "${version}",
   "name": "Schematic Selector",
   "description": "Select two blocks and save as schematic file",
-  "authors": ["Professor"],
+  "authors": [
+    "Professor"
+  ],
   "license": "MIT",
   "environment": "client",
   "entrypoints": {
@@ -15,7 +17,7 @@
   "depends": {
     "fabricloader": ">=0.15.0",
     "fabric-api": "*",
-    "minecraft": "~1.21.1",
+    "minecraft": ">=1.20.6",
     "java": ">=21"
   }
 }
