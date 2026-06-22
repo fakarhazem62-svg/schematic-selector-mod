@@ -11,8 +11,8 @@ import java.io.*;
 import java.util.*;
 
 /**
- * Saves selections as Sponge Schematic v2 (.schematic)
- * Compatible with WorldEdit, FAWE, and most modern schematic tools.
+ * Saves selections as Litematica Schematic (.litematic) v6.
+ * Compatible with Litematica mod — works entirely client-side.
  */
 public class SchematicWriter {
 
@@ -27,66 +27,100 @@ public class SchematicWriter {
         int w = sel.getWidth();
         int h = sel.getHeight();
         int l = sel.getLength();
+        int total = w * h * l;
 
-        // Build palette: blockState string → palette index
-        Map<String, Integer> palette = new LinkedHashMap<>();
-        palette.put("minecraft:air", 0); // air always index 0
+        // ── Build palette ────────────────────────────────────────────────────
+        List<BlockState> palette = new ArrayList<>();
+        Map<BlockState, Integer> paletteMap = new LinkedHashMap<>();
 
-        // Collect all block states and assign palette indices
-        int totalBlocks = w * h * l;
-        int[] paletteIndices = new int[totalBlocks];
+        // Air is always index 0
+        BlockState airState = net.minecraft.block.Blocks.AIR.getDefaultState();
+        palette.add(airState);
+        paletteMap.put(airState, 0);
 
+        // Collect states in x/z/y order (Litematica order: x inner, z mid, y outer)
+        int[] indices = new int[total];
         int idx = 0;
         for (int y = 0; y < h; y++) {
             for (int z = 0; z < l; z++) {
                 for (int x = 0; x < w; x++) {
-                    BlockPos worldPos = min.add(x, y, z);
-                    BlockState state = client.world.getBlockState(worldPos);
-                    String stateStr = blockStateToString(state);
-
-                    palette.computeIfAbsent(stateStr, k -> palette.size());
-                    paletteIndices[idx++] = palette.get(stateStr);
+                    BlockState state = client.world.getBlockState(min.add(x, y, z));
+                    int i = paletteMap.computeIfAbsent(state, s -> {
+                        palette.add(s);
+                        return palette.size() - 1;
+                    });
+                    indices[idx++] = i;
                 }
             }
         }
 
-        // Encode BlockData as varint byte array
-        byte[] blockData = encodeVarintArray(paletteIndices);
+        // ── Pack block states into long array ────────────────────────────────
+        int bitsPerEntry = Math.max(2, 32 - Integer.numberOfLeadingZeros(palette.size() - 1));
+        long[] packedData = packBits(indices, bitsPerEntry);
 
-        // Build Palette NBT compound
-        NbtCompound paletteNbt = new NbtCompound();
-        for (Map.Entry<String, Integer> entry : palette.entrySet()) {
-            paletteNbt.putInt(entry.getKey(), entry.getValue());
+        // ── Build palette NBT list ───────────────────────────────────────────
+        NbtList paletteNbt = new NbtList();
+        for (BlockState state : palette) {
+            paletteNbt.add(blockStateToNbt(state));
         }
 
-        // Build root compound (Sponge Schematic v2)
+        // ── Build region compound ────────────────────────────────────────────
+        NbtCompound position = new NbtCompound();
+        position.putInt("x", 0);
+        position.putInt("y", 0);
+        position.putInt("z", 0);
+
+        NbtCompound size = new NbtCompound();
+        size.putInt("x", w);
+        size.putInt("y", h);
+        size.putInt("z", l);
+
+        NbtCompound region = new NbtCompound();
+        region.put("Position", position);
+        region.put("Size", size);
+        region.put("BlockStatePalette", paletteNbt);
+        region.put("BlockStates", new NbtLongArray(packedData));
+        region.put("Entities", new NbtList());
+        region.put("TileEntities", new NbtList());
+        region.put("PendingBlockTicks", new NbtList());
+        region.put("PendingFluidTicks", new NbtList());
+
+        NbtCompound regions = new NbtCompound();
+        regions.put("main", region);
+
+        // ── Build metadata ───────────────────────────────────────────────────
+        NbtCompound enclosingSize = new NbtCompound();
+        enclosingSize.putInt("x", w);
+        enclosingSize.putInt("y", h);
+        enclosingSize.putInt("z", l);
+
+        long now = System.currentTimeMillis();
+        NbtCompound metadata = new NbtCompound();
+        metadata.put("EnclosingSize", enclosingSize);
+        metadata.putString("Author", "SchematicSelector");
+        metadata.putString("Description", "");
+        metadata.putString("Name", name);
+        metadata.putLong("TimeCreated", now);
+        metadata.putLong("TimeModified", now);
+        metadata.putInt("RegionCount", 1);
+
+        // ── Build root compound ──────────────────────────────────────────────
         NbtCompound root = new NbtCompound();
-        root.putShort("Version", (short) 2);
-        root.putInt("DataVersion", 3953); // Minecraft 1.21.1
-        root.putShort("Width", (short) w);
-        root.putShort("Height", (short) h);
-        root.putShort("Length", (short) l);
-        root.put("Offset", new NbtIntArray(new int[]{0, 0, 0}));
-        root.putInt("PaletteMax", palette.size());
-        root.put("Palette", paletteNbt);
-        root.put("BlockData", new NbtByteArray(blockData));
-        root.put("BlockEntities", new NbtList());
-        root.put("Entities", new NbtList());
+        root.putInt("Version", 6);
+        root.putInt("MinecraftDataVersion", 3953); // 1.21.1
+        root.put("Metadata", metadata);
+        root.put("Regions", regions);
 
-        // Wrap in "Schematic" key (required by Sponge format)
-        NbtCompound wrapper = new NbtCompound();
-        wrapper.put("Schematic", root);
-
-        // Save to .schematic file
-        File schematicsDir = new File(client.runDirectory, "schematics");
-        if (!schematicsDir.exists()) schematicsDir.mkdirs();
+        // ── Save file ────────────────────────────────────────────────────────
+        File dir = new File(client.runDirectory, "schematics");
+        if (!dir.exists()) dir.mkdirs();
 
         String safeName = name.trim().replaceAll("[^a-zA-Z0-9_\\-]", "_");
         if (safeName.isEmpty()) safeName = "schematic";
-        File outFile = new File(schematicsDir, safeName + ".schem");
+        File outFile = new File(dir, safeName + ".litematic");
 
         try (FileOutputStream fos = new FileOutputStream(outFile)) {
-            NbtIo.writeCompressed(wrapper, fos);
+            NbtIo.writeCompressed(root, fos);
             return true;
         } catch (IOException e) {
             e.printStackTrace();
@@ -94,24 +128,22 @@ public class SchematicWriter {
         }
     }
 
-    /**
-     * Converts a BlockState to its string representation.
-     * Example: "minecraft:oak_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]"
-     */
-    private static String blockStateToString(BlockState state) {
-        String blockId = Registries.BLOCK.getId(state.getBlock()).toString();
-        Collection<Property<?>> props = state.getProperties();
-        if (props.isEmpty()) return blockId;
+    // ── Helpers ──────────────────────────────────────────────────────────────
 
-        StringBuilder sb = new StringBuilder(blockId).append('[');
-        boolean first = true;
-        for (Property<?> prop : props) {
-            if (!first) sb.append(',');
-            first = false;
-            sb.append(prop.getName()).append('=').append(getPropValue(state, prop));
+    /** Converts a BlockState to its Litematica palette NBT entry. */
+    private static NbtCompound blockStateToNbt(BlockState state) {
+        NbtCompound entry = new NbtCompound();
+        entry.putString("Name", Registries.BLOCK.getId(state.getBlock()).toString());
+
+        Collection<Property<?>> props = state.getProperties();
+        if (!props.isEmpty()) {
+            NbtCompound propsNbt = new NbtCompound();
+            for (Property<?> prop : props) {
+                propsNbt.putString(prop.getName(), getPropValue(state, prop));
+            }
+            entry.put("Properties", propsNbt);
         }
-        sb.append(']');
-        return sb.toString();
+        return entry;
     }
 
     private static <T extends Comparable<T>> String getPropValue(BlockState state, Property<T> prop) {
@@ -119,17 +151,26 @@ public class SchematicWriter {
     }
 
     /**
-     * Encodes an int array as varints into a byte array.
+     * Packs int indices into a long array (Litematica bit-packing).
+     * Indices span across long boundaries.
      */
-    private static byte[] encodeVarintArray(int[] values) {
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        for (int value : values) {
-            while ((value & ~0x7F) != 0) {
-                buf.write((value & 0x7F) | 0x80);
-                value >>>= 7;
+    private static long[] packBits(int[] indices, int bitsPerEntry) {
+        int totalBits = indices.length * bitsPerEntry;
+        long[] longs = new long[(totalBits + 63) / 64];
+        long mask = (1L << bitsPerEntry) - 1L;
+
+        for (int i = 0; i < indices.length; i++) {
+            int bitStart = i * bitsPerEntry;
+            int longIdx  = bitStart >> 6;        // / 64
+            int bitOff   = bitStart & 63;        // % 64
+
+            longs[longIdx] |= ((long) indices[i] & mask) << bitOff;
+
+            int bitsWritten = 64 - bitOff;
+            if (bitsWritten < bitsPerEntry && longIdx + 1 < longs.length) {
+                longs[longIdx + 1] |= ((long) indices[i] & mask) >> bitsWritten;
             }
-            buf.write(value);
         }
-        return buf.toByteArray();
+        return longs;
     }
 }
