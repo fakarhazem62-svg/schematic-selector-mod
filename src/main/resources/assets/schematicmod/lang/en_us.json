@@ -1,0 +1,15 @@
+{
+  "key.schematicmod.toggle_selection": "Toggle Selection Mode",
+  "key.schematicmod.open_save": "Open Save Screen",
+  "category.schematicmod.general": "Schematic Selector",
+  "schematicmod.selection.enabled": "Selection Mode: ON (Left-click = Pos1, Right-click = Pos2)",
+  "schematicmod.selection.disabled": "Selection Mode: OFF",
+  "schematicmod.selection.pos1": "Pos1 set: %s",
+  "schematicmod.selection.pos2": "Pos2 set: %s",
+  "schematicmod.save.title": "Save Schematic",
+  "schematicmod.save.button": "Save",
+  "schematicmod.save.cancel": "Cancel",
+  "schematicmod.save.success": "Saved: %s",
+  "schematicmod.save.error": "Error saving schematic!",
+  "schematicmod.save.no_selection": "No selection! Set Pos1 and Pos2 first."
+}
