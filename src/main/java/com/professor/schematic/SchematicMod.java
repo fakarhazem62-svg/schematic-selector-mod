@@ -1,6 +1,6 @@
 package com.professor.schematic;
 
-import com.professor.schematic.gui.SchematicSaveScreen;
+import com.professor.schematic.gui.MainScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
@@ -15,89 +15,70 @@ import org.lwjgl.glfw.GLFW;
 
 public class SchematicMod implements ClientModInitializer {
 
-    // Key: toggle selection mode (configurable in Controls settings)
     public static KeyBinding toggleSelectionKey;
-    // Key: open save screen (M by default)
-    public static KeyBinding openSaveKey;
+    public static KeyBinding openMenuKey;
 
     @Override
     public void onInitializeClient() {
 
-        // ── Register key bindings ────────────────────────────────────────────
+        // Toggle selection mode (default: V)
         toggleSelectionKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.schematicmod.toggle_selection",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_V,          // Default: V — change in Options > Controls
+                GLFW.GLFW_KEY_V,
                 "category.schematicmod.general"
         ));
 
-        openSaveKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        // Open main menu (default: M)
+        openMenuKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.schematicmod.open_save",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_M,          // Default: M
+                GLFW.GLFW_KEY_M,
                 "category.schematicmod.general"
         ));
 
-        // ── Tick: handle key presses ─────────────────────────────────────────
+        // ── Tick events ───────────────────────────────────────────────────────
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
 
-            // Toggle selection mode
             while (toggleSelectionKey.wasPressed()) {
                 SelectionManager sel = SelectionManager.getInstance();
                 sel.setSelectionMode(!sel.isSelectionMode());
-
                 if (client.player != null) {
-                    if (sel.isSelectionMode()) {
-                        client.player.sendMessage(
-                                Text.literal("§a[Schematic] §fSelection Mode: §aON §7(Left-click = Pos1, Right-click = Pos2)"),
-                                true);
-                    } else {
-                        client.player.sendMessage(
-                                Text.literal("§c[Schematic] §fSelection Mode: §cOFF"),
-                                true);
-                    }
+                    client.player.sendMessage(
+                            Text.literal(sel.isSelectionMode()
+                                    ? "§a[Schematic] §fوضع التحديد: §aMON §7(كليك يسار = Pos1 | كليك يمين = Pos2)"
+                                    : "§c[Schematic] §fوضع التحديد: §cOFF"),
+                            true);
                 }
             }
 
-            // Open save screen
-            while (openSaveKey.wasPressed()) {
+            while (openMenuKey.wasPressed()) {
                 if (client.player != null) {
-                    client.setScreen(new SchematicSaveScreen());
+                    client.setScreen(new MainScreen());
                 }
             }
         });
 
-        // ── Attack block (left-click) → Set Pos1 ────────────────────────────
+        // ── Attack (left-click) → Pos1 ───────────────────────────────────────
         AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
             if (!world.isClient) return ActionResult.PASS;
-
             SelectionManager sel = SelectionManager.getInstance();
             if (!sel.isSelectionMode()) return ActionResult.PASS;
-
             sel.setPos1(pos);
-            player.sendMessage(
-                    Text.literal(String.format("§b[Schematic] §fPos1 set: §e(%d, %d, %d)",
-                            pos.getX(), pos.getY(), pos.getZ())),
-                    true);
-
-            // Cancel the actual block attack so we don't break the block
+            player.sendMessage(Text.literal(String.format(
+                    "§b[Schematic] §fPos1: §e(%d, %d, %d)", pos.getX(), pos.getY(), pos.getZ())), true);
             return ActionResult.FAIL;
         });
 
-        // ── Use block (right-click) → Set Pos2 ──────────────────────────────
-        UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
+        // ── Use (right-click) → Pos2 ─────────────────────────────────────────
+        UseBlockCallback.EVENT.register((player, world, hand, hit) -> {
             if (!world.isClient) return ActionResult.PASS;
-
             SelectionManager sel = SelectionManager.getInstance();
             if (!sel.isSelectionMode()) return ActionResult.PASS;
-
-            BlockPos pos = hitResult.getBlockPos();
+            BlockPos pos = hit.getBlockPos();
             sel.setPos2(pos);
-            player.sendMessage(
-                    Text.literal(String.format("§b[Schematic] §fPos2 set: §e(%d, %d, %d)",
-                            pos.getX(), pos.getY(), pos.getZ())),
-                    true);
-
+            player.sendMessage(Text.literal(String.format(
+                    "§b[Schematic] §fPos2: §e(%d, %d, %d)", pos.getX(), pos.getY(), pos.getZ())), true);
             return ActionResult.FAIL;
         });
     }
