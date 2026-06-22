@@ -83,7 +83,7 @@ public class SchematicWriter {
 
         String safeName = name.trim().replaceAll("[^a-zA-Z0-9_\\-]", "_");
         if (safeName.isEmpty()) safeName = "schematic";
-        File outFile = new File(schematicsDir, safeName + ".schematic");
+        File outFile = new File(schematicsDir, safeName + ".schem");
 
         try (FileOutputStream fos = new FileOutputStream(outFile)) {
             NbtIo.writeCompressed(wrapper, fos);
